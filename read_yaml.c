@@ -86,13 +86,13 @@ static enum CURL_METHOD parse_method(const char *method) {
 }
 
 // Read YAML file and populate METADATA
-void read_yaml(FILE *fp, METADATA *meta) {
+int read_yaml(FILE *fp, METADATA *meta) {
     yaml_parser_t parser;
     yaml_event_t event;
 
     if (!yaml_parser_initialize(&parser)) {
         LOG_ERROR("Failed to initialize YAML parser");
-        return;
+        return -1;
     }
 
     yaml_parser_set_input_file(&parser, fp);
@@ -433,6 +433,7 @@ void read_yaml(FILE *fp, METADATA *meta) {
     }
 
     yaml_parser_delete(&parser);
+    return !done;
 }
 
 // Convert CURL_METHOD enum to string

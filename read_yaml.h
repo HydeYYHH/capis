@@ -42,7 +42,7 @@ METADATA *init_metadata(void);
 
 #include <stdio.h>
 // Read YAML file and populate METADATA
-void read_yaml(FILE *fp, METADATA *metadata);
+int read_yaml(FILE *fp, METADATA *metadata);
 
 // Print METADATA contents for debugging
 void print_metadata(METADATA *metadata);

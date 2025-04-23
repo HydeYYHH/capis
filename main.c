@@ -46,9 +46,8 @@ int main(int argc, char *argv[]) {
         }
 
         LOG_INFO("Processing METADATA: %s", cur->val);
-        read_yaml(fp, md);
-        fclose(fp);
-
+        if (read_yaml(fp, md)) goto SKIP_REQ;
+        
         if (verbose) print_metadata(md);
 
         Response resp = {0}; // Initialize response
@@ -58,8 +57,11 @@ int main(int argc, char *argv[]) {
             LOG_ERROR("Request failed for %s", cur->val);
         }
 
-        free_metadata(md);
         free_response(&resp);
+
+    SKIP_REQ:
+        fclose(fp);
+        free_metadata(md);
 
         cur = cur->next;
     }
