@@ -8,6 +8,11 @@ enum CURL_METHOD {
 };
 
 typedef struct {
+    char *key;
+    char *value;
+} Header;
+
+typedef struct {
     char *name;
     char *value;
     char *domain;
@@ -29,7 +34,7 @@ typedef struct {
     char *url;
     long timeout;
     bool secure;
-    char **headers;
+    Header *headers;
     Param *params;
     Cookie *cookies;
 } METADATA;

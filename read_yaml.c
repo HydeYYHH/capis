@@ -20,8 +20,9 @@ void free_metadata(METADATA *md) {
     free(md->url);
 
     if (md->headers) {
-        for (char **h = md->headers; *h != NULL; h++) {
-            free(*h);
+        for (Header *h = md->headers; h->key != NULL; h++) {
+            free(h->key);
+            free(h->value);
         }
         free(md->headers);
     }
@@ -150,49 +151,167 @@ int read_yaml(FILE *fp, METADATA *meta) {
                             meta->timeout = strtol((char*)event.data.scalar.value, NULL, 10);
                         } else if (strcmp(key, "secure") == 0 && event.type == YAML_SCALAR_EVENT) {
                             meta->secure = strcmp((char*)event.data.scalar.value, "true") == 0;
-                        } else if (strcmp(key, "headers") == 0 && event.type == YAML_SEQUENCE_START_EVENT) {
-                            yaml_event_delete(&event);
-                            char **headers = NULL;
-                            int count = 0;
-                            while (1) {
-                                if (!yaml_parser_parse(&parser, &event)) {
-                                    break;
-                                }
-                                if (event.type == YAML_SEQUENCE_END_EVENT) {
-                                    yaml_event_delete(&event);
-                                    break;
-                                }
-                                if (event.type == YAML_SCALAR_EVENT) {
-                                    char *header = strdup((char*)event.data.scalar.value);
-                                    if (!header) {
-                                        LOG_ERROR("Failed to allocate header string");
-                                    } else {
-                                        char **temp = realloc(headers, (count + 1) * sizeof(char*));
-                                        if (temp) {
-                                            headers = temp;
-                                            headers[count] = header;
-                                            count++;
-                                        } else {
-                                            free(header);
-                                            LOG_ERROR("Failed to reallocate headers array");
-                                        }
+                        } else if (strcmp(key, "headers") == 0) {
+                            if (event.type == YAML_SEQUENCE_START_EVENT) {
+                                // Parse headers as a sequence of key-value mappings
+                                yaml_event_delete(&event);
+                                Header *headers = NULL;
+                                int count = 0;
+                                while (1) {
+                                    if (!yaml_parser_parse(&parser, &event)) {
+                                        break;
                                     }
-                                    yaml_event_delete(&event);
-                                } else {
-                                    yaml_event_delete(&event);
+                                    if (event.type == YAML_SEQUENCE_END_EVENT) {
+                                        yaml_event_delete(&event);
+                                        break;
+                                    }
+                                    if (event.type == YAML_MAPPING_START_EVENT) {
+                                        yaml_event_delete(&event);
+                                        char *header_key = NULL;
+                                        char *header_value = NULL;
+                                        while (1) {
+                                            if (!yaml_parser_parse(&parser, &event)) {
+                                                break;
+                                            }
+                                            if (event.type == YAML_MAPPING_END_EVENT) {
+                                                yaml_event_delete(&event);
+                                                break;
+                                            }
+                                            if (event.type == YAML_SCALAR_EVENT) {
+                                                char *map_key = strdup((char*)event.data.scalar.value);
+                                                if (!map_key) {
+                                                    LOG_ERROR("Failed to allocate map_key string");
+                                                    yaml_event_delete(&event);
+                                                    break;
+                                                }
+                                                to_lowercase(map_key);
+                                                yaml_event_delete(&event);
+                                                if (!yaml_parser_parse(&parser, &event)) {
+                                                    free(map_key);
+                                                    break;
+                                                }
+                                                if (event.type == YAML_SCALAR_EVENT) {
+                                                    if (strcmp(map_key, "key") == 0) {
+                                                        header_key = strdup((char*)event.data.scalar.value);
+                                                        if (!header_key) LOG_ERROR("Failed to allocate header_key");
+                                                    } else if (strcmp(map_key, "value") == 0) {
+                                                        header_value = strdup((char*)event.data.scalar.value);
+                                                        if (!header_value) LOG_ERROR("Failed to allocate header_value");
+                                                    }
+                                                    yaml_event_delete(&event);
+                                                } else {
+                                                    yaml_event_delete(&event);
+                                                }
+                                                free(map_key);
+                                            } else {
+                                                yaml_event_delete(&event);
+                                            }
+                                        }
+                                        if (header_key && header_value) {
+                                            Header *temp = realloc(headers, (count + 1) * sizeof(Header));
+                                            if (temp) {
+                                                headers = temp;
+                                                headers[count].key = header_key;
+                                                headers[count].value = header_value;
+                                                count++;
+                                            } else {
+                                                free(header_key);
+                                                free(header_value);
+                                                LOG_ERROR("Failed to reallocate headers array");
+                                            }
+                                        } else {
+                                            free(header_key);
+                                            free(header_value);
+                                        }
+                                    } else {
+                                        yaml_event_delete(&event);
+                                    }
                                 }
-                            }
-                            if (headers) {
-                                char **temp = realloc(headers, (count + 1) * sizeof(char*));
-                                if (temp) {
-                                    headers = temp;
-                                    headers[count] = NULL;
-                                    meta->headers = headers;
-                                } else {
-                                    LOG_ERROR("Failed to reallocate headers array");
-                                    for (int i = 0; i < count; i++) free(headers[i]);
-                                    free(headers);
+                                if (headers) {
+                                    Header *temp = realloc(headers, (count + 1) * sizeof(Header));
+                                    if (temp) {
+                                        headers = temp;
+                                        headers[count].key = NULL;
+                                        headers[count].value = NULL;
+                                        meta->headers = headers;
+                                    } else {
+                                        LOG_ERROR("Failed to reallocate headers array");
+                                        for (int i = 0; i < count; i++) {
+                                            free(headers[i].key);
+                                            free(headers[i].value);
+                                        }
+                                        free(headers);
+                                    }
                                 }
+                            } else if (event.type == YAML_MAPPING_START_EVENT) {
+                                // Parse headers as direct key-value pairs
+                                yaml_event_delete(&event);
+                                Header *headers = NULL;
+                                int count = 0;
+                                while (1) {
+                                    if (!yaml_parser_parse(&parser, &event)) {
+                                        break;
+                                    }
+                                    if (event.type == YAML_MAPPING_END_EVENT) {
+                                        yaml_event_delete(&event);
+                                        break;
+                                    }
+                                    if (event.type == YAML_SCALAR_EVENT) {
+                                        char *header_key = strdup((char*)event.data.scalar.value);
+                                        if (!header_key) {
+                                            LOG_ERROR("Failed to allocate header_key string");
+                                            yaml_event_delete(&event);
+                                            continue;
+                                        }
+                                        yaml_event_delete(&event);
+                                        if (!yaml_parser_parse(&parser, &event)) {
+                                            free(header_key);
+                                            break;
+                                        }
+                                        if (event.type == YAML_SCALAR_EVENT) {
+                                            char *header_value = strdup((char*)event.data.scalar.value);
+                                            if (!header_value) {
+                                                LOG_ERROR("Failed to allocate header_value string");
+                                                free(header_key);
+                                            } else {
+                                                Header *temp = realloc(headers, (count + 1) * sizeof(Header));
+                                                if (temp) {
+                                                    headers = temp;
+                                                    headers[count].key = header_key;
+                                                    headers[count].value = header_value;
+                                                    count++;
+                                                } else {
+                                                    free(header_key);
+                                                    free(header_value);
+                                                    LOG_ERROR("Failed to reallocate headers array");
+                                                }
+                                            }
+                                        } else {
+                                            free(header_key);
+                                        }
+                                        yaml_event_delete(&event);
+                                    } else {
+                                        yaml_event_delete(&event);
+                                    }
+                                }
+                                if (headers) {
+                                    Header *temp = realloc(headers, (count + 1) * sizeof(Header));
+                                    if (temp) {
+                                        headers = temp;
+                                        headers[count].key = NULL;
+                                        headers[count].value = NULL;
+                                        meta->headers = headers;
+                                    } else {
+                                        LOG_ERROR("Failed to reallocate headers array");
+                                        for (int i = 0; i < count; i++) {
+                                            free(headers[i].key);
+                                            free(headers[i].value);
+                                        }
+                                        free(headers);
+                                    }
+                                }
+                            } else {
+                                yaml_event_delete(&event);
                             }
                         } else if (strcmp(key, "params") == 0) {
                             if (event.type == YAML_SEQUENCE_START_EVENT) {
@@ -536,8 +655,8 @@ void print_metadata(METADATA *metadata) {
 
     printf("Headers:\n");
     if (metadata->headers) {
-        for (char **h = metadata->headers; *h != NULL; h++) {
-            printf("  - %s\n", *h);
+        for (Header *h = metadata->headers; h->key != NULL; h++) {
+            printf("  %s: %s\n", h->key, h->value);
         }
     } else {
         printf("  (none)\n");

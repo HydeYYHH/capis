@@ -1,24 +1,11 @@
 #include "easy_curl.h"
 #include "log.h"
+#include "utils.h"
 #include <curl/curl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
-
-#ifndef _GNU_SOURCE
-#define _GNU_SOURCE
-#endif
-
-// Implementation of strndup for systems lacking it
-char *strndup(const char *s, size_t n) {
-    size_t len = strnlen(s, n);
-    char *new = malloc(len + 1);
-    if (!new) return NULL;
-    memcpy(new, s, len);
-    new[len] = '\0';
-    return new;
-}
 
 // Free memory allocated for Response struct
 void free_response(Response *resp) {
@@ -41,8 +28,6 @@ void free_response(Response *resp) {
         free(resp->set_cookies);
         resp->set_cookies = NULL;
     }
-
-    // No need to free status_code (primitive type)
 }
 
 // Callback to handle response body data
@@ -160,7 +145,7 @@ int do_easy_curl(METADATA *md, Response *resp, ...) {
         if (query_str) {
             char *p = query_str;
             for (Param *param = md->params; param->key != NULL; param++) {
-                p += snprintf(p, query_str + param_len + 1 - p, "%s=%s&", param->key, param->value);
+                p += snprintf(p, param_len + 1 - (p - query_str), "%s=%s&", param->key, param->value);
             }
             if (p > query_str) {
                 if (*(p-1) == '&') *(p-1) = '\0'; // Trim trailing &
@@ -200,18 +185,32 @@ int do_easy_curl(METADATA *md, Response *resp, ...) {
     struct curl_slist *header_list = NULL;
     bool has_content_type = false;
     if (md->headers) {
-        for (char **h = md->headers; *h != NULL; h++) {
-            if (strncasecmp(*h, "Content-Type:", 13) == 0) {
+        for (Header *h = md->headers; h->key != NULL; h++) {
+            char *header = malloc(strlen(h->key) + strlen(h->value) + 3); // +3 for ": " and '\0'
+            if (!header) {
+                LOG_ERROR("Failed to allocate header string");
+                free(final_url);
+                free_response(resp);
+                curl_slist_free_all(header_list);
+                curl_easy_cleanup(curl);
+                return -1;
+            }
+            snprintf(header, strlen(h->key) + strlen(h->value) + 3, "%s: %s", h->key, h->value);
+            header_list = curl_slist_append(header_list, header);
+            if (strncasecmp(header, "Content-Type:", 13) == 0) {
                 has_content_type = true;
             }
-            header_list = curl_slist_append(header_list, *h);
+            free(header);
         }
     }
 
+    // Add default Content-Type for POST/PUT if not specified
     if (!has_content_type && (md->method == POST || md->method == PUT)) {
         header_list = curl_slist_append(header_list, "Content-Type: application/x-www-form-urlencoded");
     }
 
+    // Disable Expect: 100-continue to avoid hangs
+    header_list = curl_slist_append(header_list, "Expect:");
     if (header_list) {
         curl_easy_setopt(curl, CURLOPT_HTTPHEADER, header_list);
     }
@@ -222,6 +221,8 @@ int do_easy_curl(METADATA *md, Response *resp, ...) {
         cookie_str = malloc(buf_len);
         if (!cookie_str) {
             LOG_ERROR("Failed to allocate cookie string");
+            free(final_url);
+            free_response(resp);
             curl_slist_free_all(header_list);
             curl_easy_cleanup(curl);
             return -1;
@@ -238,6 +239,8 @@ int do_easy_curl(METADATA *md, Response *resp, ...) {
                 if (!temp) {
                     LOG_ERROR("Failed to reallocate cookie string");
                     free(cookie_str);
+                    free(final_url);
+                    free_response(resp);
                     curl_slist_free_all(header_list);
                     curl_easy_cleanup(curl);
                     return -1;
@@ -267,7 +270,7 @@ int do_easy_curl(METADATA *md, Response *resp, ...) {
 
         size_t cookie_str_len = strlen(cookie_str);
         if (cookie_str_len > 2) {
-            cookie_str[cookie_str_len - 2] = '\0';
+            cookie_str[cookie_str_len - 2] = '\0'; // Remove trailing "; "
         }
 
         curl_easy_setopt(curl, CURLOPT_COOKIE, cookie_str);
@@ -286,6 +289,8 @@ int do_easy_curl(METADATA *md, Response *resp, ...) {
             if (!param_str) {
                 LOG_ERROR("Failed to allocate param string");
                 free(cookie_str);
+                free(final_url);
+                free_response(resp);
                 curl_slist_free_all(header_list);
                 curl_easy_cleanup(curl);
                 return -1;
@@ -321,12 +326,15 @@ int do_easy_curl(METADATA *md, Response *resp, ...) {
         case PUT:
             curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "PUT");
             break;
-        case DELETE:
         case _DELETE:
             curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "DELETE");
             break;
+        case UPDATE:
+            curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "UPDATE");
+            break;
         case GET:
         default:
+            curl_easy_setopt(curl, CURLOPT_HTTPGET, 1L);
             break;
     }
 
