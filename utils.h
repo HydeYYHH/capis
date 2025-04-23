@@ -8,11 +8,6 @@ typedef struct Node {
 
 typedef Node* StrLList;
 
-
-#ifndef _GNU_SOURCE
-#define _GNU_SOURCE
-#endif
-
 #include <stddef.h>
 
 char *strndup(const char *s, size_t n);

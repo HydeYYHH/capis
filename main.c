@@ -9,6 +9,7 @@
 
 /* 
 gcc main.c easy_curl.c multi_curl.c log.c read_yaml.c utils.c -I. -I./curl/include -I.\libyaml\include -L./curl/lib -lcurl -lyaml
+gcc main.c easy_curl.c log.c read_yaml.c utils.c -lcurl -lyaml -o capis.out
 */
 int main(int argc, char *argv[]) {
     LOG_INFO("CAPIS RUNNING");
