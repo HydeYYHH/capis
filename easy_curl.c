@@ -147,7 +147,46 @@ int do_easy_curl(METADATA *md, Response *resp, ...) {
 
     LOG_INFO("Preparing request: %s", md->url);
 
-    curl_easy_setopt(curl, CURLOPT_URL, md->url);
+    // Handle GET parameters by appending to URL
+    char *final_url = NULL;
+    if (md->method == GET && md->params != NULL) {
+        // Generate query string from parameters
+        size_t param_len = 0;
+        for (Param *p = md->params; p->key != NULL; p++) {
+            param_len += strlen(p->key) + strlen(p->value) + 2; // key=value&
+        }
+
+        char *query_str = malloc(param_len + 1);
+        if (query_str) {
+            char *p = query_str;
+            for (Param *param = md->params; param->key != NULL; param++) {
+                p += snprintf(p, query_str + param_len + 1 - p, "%s=%s&", param->key, param->value);
+            }
+            if (p > query_str) {
+                if (*(p-1) == '&') *(p-1) = '\0'; // Trim trailing &
+                else *p = '\0';
+            } else {
+                *query_str = '\0';
+            }
+
+            // Build final URL with query parameters
+            const char *separator = strchr(md->url, '?') ? "&" : "?";
+            size_t new_url_len = strlen(md->url) + strlen(separator) + strlen(query_str) + 1;
+            final_url = malloc(new_url_len);
+            if (final_url) {
+                snprintf(final_url, new_url_len, "%s%s%s", md->url, separator, query_str);
+                LOG_INFO("GET request with params: %s", final_url);
+            } else {
+                LOG_ERROR("Failed to allocate final URL");
+            }
+            free(query_str);
+        } else {
+            LOG_ERROR("Failed to allocate query string");
+        }
+    }
+
+    // Set final URL for CURL
+    curl_easy_setopt(curl, CURLOPT_URL, final_url ? final_url : md->url);
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, md->timeout);
 
@@ -301,6 +340,7 @@ int do_easy_curl(METADATA *md, Response *resp, ...) {
 
     free(param_str);
     free(cookie_str);
+    if (final_url) free(final_url);
     if (header_list) curl_slist_free_all(header_list);
     if (url_allocated) {
         free(md->url);
