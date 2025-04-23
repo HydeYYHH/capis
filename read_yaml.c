@@ -194,95 +194,167 @@ int read_yaml(FILE *fp, METADATA *meta) {
                                     free(headers);
                                 }
                             }
-                        } else if (strcmp(key, "params") == 0 && event.type == YAML_SEQUENCE_START_EVENT) {
-                            yaml_event_delete(&event);
-                            Param *params = NULL;
-                            int count = 0;
-                            while (1) {
-                                if (!yaml_parser_parse(&parser, &event)) {
-                                    break;
-                                }
-                                if (event.type == YAML_SEQUENCE_END_EVENT) {
-                                    yaml_event_delete(&event);
-                                    break;
-                                }
-                                if (event.type == YAML_MAPPING_START_EVENT) {
-                                    yaml_event_delete(&event);
-                                    char *param_key = NULL;
-                                    char *param_value = NULL;
-                                    while (1) {
-                                        if (!yaml_parser_parse(&parser, &event)) {
-                                            break;
-                                        }
-                                        if (event.type == YAML_MAPPING_END_EVENT) {
-                                            yaml_event_delete(&event);
-                                            break;
-                                        }
-                                        if (event.type == YAML_SCALAR_EVENT) {
-                                            char *map_key = strdup((char*)event.data.scalar.value);
-                                            if (!map_key) {
-                                                LOG_ERROR("Failed to allocate map_key string");
-                                                yaml_event_delete(&event);
+                        } else if (strcmp(key, "params") == 0) {
+                            if (event.type == YAML_SEQUENCE_START_EVENT) {
+                                // Parse params as a sequence of key-value mappings
+                                yaml_event_delete(&event);
+                                Param *params = NULL;
+                                int count = 0;
+                                while (1) {
+                                    if (!yaml_parser_parse(&parser, &event)) {
+                                        break;
+                                    }
+                                    if (event.type == YAML_SEQUENCE_END_EVENT) {
+                                        yaml_event_delete(&event);
+                                        break;
+                                    }
+                                    if (event.type == YAML_MAPPING_START_EVENT) {
+                                        yaml_event_delete(&event);
+                                        char *param_key = NULL;
+                                        char *param_value = NULL;
+                                        while (1) {
+                                            if (!yaml_parser_parse(&parser, &event)) {
                                                 break;
                                             }
-                                            to_lowercase(map_key);
-                                            yaml_event_delete(&event);
-                                            if (!yaml_parser_parse(&parser, &event)) {
-                                                free(map_key);
+                                            if (event.type == YAML_MAPPING_END_EVENT) {
+                                                yaml_event_delete(&event);
                                                 break;
                                             }
                                             if (event.type == YAML_SCALAR_EVENT) {
-                                                if (strcmp(map_key, "key") == 0) {
-                                                    param_key = strdup((char*)event.data.scalar.value);
-                                                    if (!param_key) LOG_ERROR("Failed to allocate param_key");
-                                                } else if (strcmp(map_key, "value") == 0) {
-                                                    param_value = strdup((char*)event.data.scalar.value);
-                                                    if (!param_value) LOG_ERROR("Failed to allocate param_value");
+                                                char *map_key = strdup((char*)event.data.scalar.value);
+                                                if (!map_key) {
+                                                    LOG_ERROR("Failed to allocate map_key string");
+                                                    yaml_event_delete(&event);
+                                                    break;
                                                 }
+                                                to_lowercase(map_key);
                                                 yaml_event_delete(&event);
+                                                if (!yaml_parser_parse(&parser, &event)) {
+                                                    free(map_key);
+                                                    break;
+                                                }
+                                                if (event.type == YAML_SCALAR_EVENT) {
+                                                    if (strcmp(map_key, "key") == 0) {
+                                                        param_key = strdup((char*)event.data.scalar.value);
+                                                        if (!param_key) LOG_ERROR("Failed to allocate param_key");
+                                                    } else if (strcmp(map_key, "value") == 0) {
+                                                        param_value = strdup((char*)event.data.scalar.value);
+                                                        if (!param_value) LOG_ERROR("Failed to allocate param_value");
+                                                    }
+                                                    yaml_event_delete(&event);
+                                                } else {
+                                                    yaml_event_delete(&event);
+                                                }
+                                                free(map_key);
                                             } else {
                                                 yaml_event_delete(&event);
                                             }
-                                            free(map_key);
-                                        } else {
-                                            yaml_event_delete(&event);
                                         }
-                                    }
-                                    if (param_key && param_value) {
-                                        Param *temp = realloc(params, (count + 1) * sizeof(Param));
-                                        if (temp) {
-                                            params = temp;
-                                            params[count].key = param_key;
-                                            params[count].value = param_value;
-                                            count++;
+                                        if (param_key && param_value) {
+                                            Param *temp = realloc(params, (count + 1) * sizeof(Param));
+                                            if (temp) {
+                                                params = temp;
+                                                params[count].key = param_key;
+                                                params[count].value = param_value;
+                                                count++;
+                                            } else {
+                                                free(param_key);
+                                                free(param_value);
+                                                LOG_ERROR("Failed to reallocate params array");
+                                            }
                                         } else {
                                             free(param_key);
                                             free(param_value);
-                                            LOG_ERROR("Failed to reallocate params array");
                                         }
                                     } else {
-                                        free(param_key);
-                                        free(param_value);
+                                        yaml_event_delete(&event);
                                     }
-                                } else {
-                                    yaml_event_delete(&event);
                                 }
-                            }
-                            if (params) {
-                                Param *temp = realloc(params, (count + 1) * sizeof(Param));
-                                if (temp) {
-                                    params = temp;
-                                    params[count].key = NULL;
-                                    params[count].value = NULL;
-                                    meta->params = params;
-                                } else {
-                                    LOG_ERROR("Failed to reallocate params array");
-                                    for (int i = 0; i < count; i++) {
-                                        free(params[i].key);
-                                        free(params[i].value);
+                                if (params) {
+                                    Param *temp = realloc(params, (count + 1) * sizeof(Param));
+                                    if (temp) {
+                                        params = temp;
+                                        params[count].key = NULL;
+                                        params[count].value = NULL;
+                                        meta->params = params;
+                                    } else {
+                                        LOG_ERROR("Failed to reallocate params array");
+                                        for (int i = 0; i < count; i++) {
+                                            free(params[i].key);
+                                            free(params[i].value);
+                                        }
+                                        free(params);
                                     }
-                                    free(params);
                                 }
+                            } else if (event.type == YAML_MAPPING_START_EVENT) {
+                                // Parse params as direct key-value pairs
+                                yaml_event_delete(&event);
+                                Param *params = NULL;
+                                int count = 0;
+                                while (1) {
+                                    if (!yaml_parser_parse(&parser, &event)) {
+                                        break;
+                                    }
+                                    if (event.type == YAML_MAPPING_END_EVENT) {
+                                        yaml_event_delete(&event);
+                                        break;
+                                    }
+                                    if (event.type == YAML_SCALAR_EVENT) {
+                                        char *param_key = strdup((char*)event.data.scalar.value);
+                                        if (!param_key) {
+                                            LOG_ERROR("Failed to allocate param_key string");
+                                            yaml_event_delete(&event);
+                                            continue;
+                                        }
+                                        yaml_event_delete(&event);
+                                        if (!yaml_parser_parse(&parser, &event)) {
+                                            free(param_key);
+                                            break;
+                                        }
+                                        if (event.type == YAML_SCALAR_EVENT) {
+                                            char *param_value = strdup((char*)event.data.scalar.value);
+                                            if (!param_value) {
+                                                LOG_ERROR("Failed to allocate param_value string");
+                                                free(param_key);
+                                            } else {
+                                                Param *temp = realloc(params, (count + 1) * sizeof(Param));
+                                                if (temp) {
+                                                    params = temp;
+                                                    params[count].key = param_key;
+                                                    params[count].value = param_value;
+                                                    count++;
+                                                } else {
+                                                    free(param_key);
+                                                    free(param_value);
+                                                    LOG_ERROR("Failed to reallocate params array");
+                                                }
+                                            }
+                                        } else {
+                                            free(param_key);
+                                        }
+                                        yaml_event_delete(&event);
+                                    } else {
+                                        yaml_event_delete(&event);
+                                    }
+                                }
+                                if (params) {
+                                    Param *temp = realloc(params, (count + 1) * sizeof(Param));
+                                    if (temp) {
+                                        params = temp;
+                                        params[count].key = NULL;
+                                        params[count].value = NULL;
+                                        meta->params = params;
+                                    } else {
+                                        LOG_ERROR("Failed to reallocate params array");
+                                        for (int i = 0; i < count; i++) {
+                                            free(params[i].key);
+                                            free(params[i].value);
+                                        }
+                                        free(params);
+                                    }
+                                }
+                            } else {
+                                yaml_event_delete(&event);
                             }
                         } else if (strcmp(key, "cookies") == 0 && event.type == YAML_SEQUENCE_START_EVENT) {
                             yaml_event_delete(&event);
@@ -339,7 +411,7 @@ int read_yaml(FILE *fp, METADATA *meta) {
                                                 } else if (strcmp(map_key, "path") == 0) {
                                                     path = strdup((char*)event.data.scalar.value);
                                                     if (!path) LOG_ERROR("Failed to allocate cookie path");
-                                                } else if (strcmp(key, "expires") == 0) {
+                                                } else if (strcmp(map_key, "expires") == 0) {
                                                     expires = strdup((char*)event.data.scalar.value);
                                                     if (!expires) LOG_ERROR("Failed to allocate cookie expires");
                                                 } else if (strcmp(map_key, "httponly") == 0) {

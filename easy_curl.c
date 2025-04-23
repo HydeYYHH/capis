@@ -188,7 +188,8 @@ int do_easy_curl(METADATA *md, Response *resp, ...) {
     // Set final URL for CURL
     curl_easy_setopt(curl, CURLOPT_URL, final_url ? final_url : md->url);
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT, md->timeout);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, md->timeout);
+    curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
 
     if (!md->secure) {
         curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
@@ -273,29 +274,44 @@ int do_easy_curl(METADATA *md, Response *resp, ...) {
     }
 
     char *param_str = NULL;
-    if (md->params && (md->method == POST || md->method == PUT)) {
-        size_t param_len = 0;
-        for (Param *p = md->params; p->key != NULL; p++) {
-            param_len += strlen(p->key) + strlen(p->value) + 2;
-        }
+    if (md->method == POST || md->method == PUT) {
+        if (md->params && md->params->key != NULL) {
+            // Calculate total length for non-empty params
+            size_t param_len = 0;
+            for (Param *p = md->params; p->key != NULL; p++) {
+                param_len += strlen(p->key) + strlen(p->value) + 2; // +2 for '=' and '&'
+            }
 
-        param_str = malloc(param_len + 1);
-        if (!param_str) {
-            LOG_ERROR("Failed to allocate param string");
-            free(cookie_str);
-            curl_slist_free_all(header_list);
-            curl_easy_cleanup(curl);
-            return -1;
-        }
+            param_str = malloc(param_len + 1);
+            if (!param_str) {
+                LOG_ERROR("Failed to allocate param string");
+                free(cookie_str);
+                curl_slist_free_all(header_list);
+                curl_easy_cleanup(curl);
+                return -1;
+            }
 
-        char *p = param_str;
-        for (Param *param = md->params; param->key != NULL; param++) {
-            p += snprintf(p, param_str + param_len + 1 - p, "%s=%s&", param->key, param->value);
-        }
-        if (p > param_str && p[-1] == '&') p[-1] = '\0';
-        else *p = '\0';
+            // Build param string
+            char *p = param_str;
+            for (Param *param = md->params; param->key != NULL; param++) {
+                p += snprintf(p, param_len + 1 - (p - param_str), "%s=%s&", param->key, param->value);
+            }
+            if (p > param_str && p[-1] == '&') {
+                p[-1] = '\0'; // Remove trailing '&'
+            } else {
+                *p = '\0';
+            }
 
-        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, param_str);
+            curl_easy_setopt(curl, CURLOPT_POSTFIELDS, param_str);
+        } else {
+            // Set empty body for POST/PUT with no params
+            curl_easy_setopt(curl, CURLOPT_POSTFIELDS, "");
+            curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, 0L); // Ensure Content-Length: 0
+        }
+    } else {
+        // For non-POST/PUT methods, ensure no body is sent
+        curl_easy_setopt(curl, CURLOPT_NOBODY, 0L);
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, NULL);
     }
 
     switch (md->method) {
