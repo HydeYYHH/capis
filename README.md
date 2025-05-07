@@ -1,4 +1,4 @@
-# 📘 CAPIS — Simple and Fast API Test Tool
+# 📘 C-APIS — Simple and Fast API Test Tool
 
 **`capis` is a lightweight, fast, and developer-friendly API testing tool based on `libyaml` and `libcurl`.**
 
